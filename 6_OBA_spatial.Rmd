@@ -1,0 +1,218 @@
+---
+title: "Exploring bee-related spatial data"
+output: pdf_document
+author:
+  - Lauren Ponisio
+---
+
+<!-- Lesson Overview -->
+
+# Conservation/ecology Topics 
+
+> - Species distributions 
+
+# Computational Topics
+> -  Convert a data frame to a spatial object.
+> -  Plot multiple spatial layers.
+
+-------------------------------
+```{r load-libraries, echo=FALSE, results="hide", message=FALSE, warning=FALSE}
+library(terra)
+library(ggplot2)
+library(dplyr)
+library(sf)
+```
+
+# Lab part 1: Oregon bee atlas data exploration 
+
+a. Import the OBA data.
+```{r}
+OBA_data <- read.csv("~/Documents/BIO410Stuff/6_OBA_spatial/OBA_2018-2023.csv")
+head(OBA_data)
+OBA_df <- as.data.frame(OBA_data)
+head(OBA_df)
+```
+
+b. Find the columns related to genus and species and paste them together (with a space between) using the function paste(). Name the new column GenusSpecies.
+```{r}
+OBA_df$GenusSpecies <- paste(OBA_df$Genus, OBA_df$Species)
+head(OBA_df)
+#OBA_df
+```
+c. Use `sort()` and `unique()` to print the unique values of GenusSpecies in alphabetical order.  How many species are there? 
+
+```{r}
+
+unique_species <- sort(unique(OBA_df$GenusSpecies))
+
+
+print(unique_species)
+
+
+num_species <- length(unique_species)
+cat("Number of unique species:", num_species)
+
+```
+
+Some specimens are not identified to species, only genus. How is this reflected in the data? 
+In two weeks we will learn how to clean this up using regular expressions. 
+
+d. So many bees, so little time. Count up the occurrences of each bee species, and subset the data to bees that have been seen at least two times. 
+You can use the tidyverse or any other functions in R that you like. How many "species" are there? 
+
+```{r}
+bee_counts_atleast_2 <- OBA_df %>%
+  group_by(Species) %>%
+  tally() %>%
+  filter(n >= 2)
+
+head(bee_counts_atleast_2)
+#bee_counts_atleast_2
+#there are 346 species
+```
+
+e. Google a few bee names (that have been seen > 2 times) and find one with an a look that resonates with you.
+
+What is the name of your bee? Lasioglossum Buccale!
+
+Import the photos into Rmarkdown below (hint: googling bee name "discover life" or "inat" can often get you a photo. Many bees will no have any photos :( 
+
+# Lab part 2: Plotting the distrubution of your spirit bee. 
+
+How that have chosen your spirit bee, we would like to plot it's distribution. What is the crs of the data? Annoyingly it is not described anywhere in the spreadsheet (always list your crs in your data) but it is the same as what inat uses because all bees have a georeferenced plant host. If the data is in lat long, it is "unprojected" so only a datum will be listed. 
+DATUM: WGS84, unprojected lat long. EPSG code: 4326. 
+
+
+```{r}
+crs("EPSG:4326")
+```
+
+a. Extract the X and Y locations for your species only from the data and create a spatial object. Don't forget to set the CRS! 
+Hint 1: consider what other data you would like to keep as attributes, for example what flower they were foraging on. Hint 2: Remember the lat is y and long is x. 
+Hint 3: You may want to rename the column names you can use, colnames() and reassign the names, since the ones in the oba data spreadsheet are really ugly. 
+
+```{r}
+buccale_data <- OBA_df %>%
+  filter(OBA_df$Species == "buccale") %>%
+  select(Species, GenusSpecies, Dec..Lat., Dec..Long.,
+         Associated.plant...genus..species, MonthJul)
+
+colnames(buccale_data) <- c("Species", "GenusSpecies", "Lat", "Long",
+                           "Associated Plant", "Month")
+buccale_data$Month <- ifelse(buccale_data$Month == "", "None Specified", buccale_data$Month)
+  
+head(buccale_data)
+buccale_data
+
+
+buccale_spatial <- st_as_sf(buccale_data, coords = c("Long", "Lat"), crs = 4326)
+
+
+
+
+```
+
+b. Plot your exciting bee data!
+
+```{r plot-data-points}
+ggplot(data = buccale_spatial) +
+  geom_sf() +
+  theme_minimal() +
+  labs(title = "Locations of Lasioglossum Buccale",
+       x = "Longitude",
+       y = "Latitude")
+```
+
+Not so exciting without some kind of background... 
+
+Luckily we can download basemaps into R using the map_data function in ggplot (among many others). There is an example for retrieving the Oregon county polygons. 
+
+```{r plot-or}
+or <- map_data("county", "oregon") %>% 
+  select(lon = long, lat, group, id = subregion)
+
+or_sp <- st_as_sf(or, coords = c("lon", "lat"), crs = 4326)
+
+```
+
+c. Add your species's points to your choice or an Oregon basemap. 
+
+```{r plot-data-points-basemap}
+library(ggspatial)
+
+ggplot(data = buccale_spatial) +
+   geom_polygon(data = or, aes(x = lon, y = lat, group = group), 
+               fill = "lightgrey", color = "white")+  
+  geom_sf(color = "red", size = 2) +
+  theme_minimal() +
+  labs(title = "Locations of Lasioglossum Buccale",
+       x = "Longitude",
+       y = "Latitude")
+
+```
+# Lab part 3: Cartography
+
+a. Here is your moment to explore your cartographic skills. 
+1. Add another spatial layer relevant to your final project and tweek the Oregon map in anyway that is useful/visually appealing. You may need to crop that layer to the extent of your species's distribution. 
+2. Color your points according to some data attribute and add a legend (month collected, county, collector, associated plant, whatever you think is interesting). You may need to circle back to 2.1 to save
+additional attributes when you converted the dataframe to a spatial object. 
+3. Fine-tune your map: add a title, make sure the legend label makes sense, add a scale bar (google "add scale bar map ggplot" and choose your favorite package). All maps must always have a scale bar. You can add a N arrow as well, though some cartographers argue that is only necessary if N isn't at the top of the map.
+4. Write a figure caption for your map explaining any interesting trends you see. 
+5. Export you cropped layer to a .shp so you can use it again for your final project.
+6. Push this lab to your github repo (just the .Rmd, don't push the data!)
+
+```{r plot-creative}
+install.packages("rnaturalearth")
+library(rnaturalearth)
+
+rivers <- ne_download(scale = "medium", type = "rivers_lake_centerlines", category = "physical")
+buccale_extent <- st_bbox(buccale_spatial)
+or_extent <- st_bbox(or_sp)
+
+rivers_cropped <- st_crop(rivers, or_extent)
+buccale_spatial$Month <- as.factor(buccale_spatial$Month)
+
+
+ggplot() +
+  
+  geom_polygon(data = or, aes(x = lon, y = lat, group = group), 
+               fill = "lightgrey", color = "white", alpha = 0.8) +
+  
+  geom_sf(data = rivers_cropped, fill = "lightblue", color = "blue", alpha = 0.3) +
+  
+  geom_sf(data = buccale_spatial, aes(color = Month), size = 4) + 
+  
+  annotation_scale(location = "bl", width_hint = 0.3) +
+  
+  labs(title = "Lasioglossum Buccale Locations by Month in Oregon with Major Rivers",
+       x = "Longitude", y = "Latitude") 
+  
+#figure caption:
+#As expected, most of the Buccale collections are in proximity of major rivers, which makes sense since most major forests/wildlife areas are in proximity of bodies of water. However there are some outliers near the Oregon Coast, but small creeks near the Ocean and the Ocean itself can explain this variation. 
+#Exporting
+#st_write(rivers_cropped, "rivers_cropped.shp")
+
+
+
+```
+
+We are looking forward to seeing the maps you create! 
+
+# Lab part 4: Spatial summary statistics
+ For your final projects, you will likely need to come up with summary statistics that describes the areas around where bees are captured. 
+a. Using the distribution of your chosen bee and the spatial layer you imported in 2.6, extract a meaningful summary statistics from your spatial layer within a buffer of 500, 750 1000 km.
+b. Create a plot that illustrates this summary data (box plot, barplot, scatter plot, historgram). 
+c. Create a map of your cropped spatial data.
+
+```{r buffers}
+buffer_distances <- c(500000, 750000, 1000000) #meters
+rasty_riv <- rast(rivers)
+
+mean_buccale_500 <- extract(x = rasty_riv, 
+                            y = st_buffer(buccale_spatial, dist = (500 * 1000)), fun = mean)
+
+
+
+
+
+```
