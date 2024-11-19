@@ -46,7 +46,7 @@ c. Use `sort()` and `unique()` to print the unique values of GenusSpecies in alp
 unique_species <- sort(unique(OBA_df$GenusSpecies))
 
 
-print(unique_species)
+#print(unique_species)
 
 
 num_species <- length(unique_species)
@@ -102,7 +102,7 @@ colnames(buccale_data) <- c("Species", "GenusSpecies", "Lat", "Long",
 buccale_data$Month <- ifelse(buccale_data$Month == "", "None Specified", buccale_data$Month)
   
 head(buccale_data)
-buccale_data
+#buccale_data
 
 
 buccale_spatial <- st_as_sf(buccale_data, coords = c("Long", "Lat"), crs = 4326)
@@ -162,7 +162,7 @@ additional attributes when you converted the dataframe to a spatial object.
 6. Push this lab to your github repo (just the .Rmd, don't push the data!)
 
 ```{r plot-creative}
-install.packages("rnaturalearth")
+#install.packages("rnaturalearth")
 library(rnaturalearth)
 
 rivers <- ne_download(scale = "medium", type = "rivers_lake_centerlines", category = "physical")
@@ -180,15 +180,16 @@ ggplot() +
   
   geom_sf(data = rivers_cropped, fill = "lightblue", color = "blue", alpha = 0.3) +
   
-  geom_sf(data = buccale_spatial, aes(color = Month), size = 4) + 
+  geom_sf(data = buccale_spatial, aes(color = Month), size = 3) + 
   
   annotation_scale(location = "bl", width_hint = 0.3) +
   
   labs(title = "Lasioglossum Buccale Locations by Month in Oregon with Major Rivers",
-       x = "Longitude", y = "Latitude") 
+       x = "Longitude", y = "Latitude", caption = "As expected, most of the Buccale collections are in proximity of major rivers,\n which makes sense since most major forests/wildlife areas are in proximity of bodies of water.\n However there are some outliers near the Oregon Coast,\n but small creeks near the Ocean and the Ocean itself can explain this variation.") +
+  theme_minimal()
   
 #figure caption:
-#As expected, most of the Buccale collections are in proximity of major rivers, which makes sense since most major forests/wildlife areas are in proximity of bodies of water. However there are some outliers near the Oregon Coast, but small creeks near the Ocean and the Ocean itself can explain this variation. 
+#As expected, most of the Buccale collections are in proximity of major rivers, which makes sense since most major forests/wildlife areas are in proximity of bodies of water. 
 #Exporting
 #st_write(rivers_cropped, "rivers_cropped.shp")
 
@@ -205,11 +206,11 @@ b. Create a plot that illustrates this summary data (box plot, barplot, scatter 
 c. Create a map of your cropped spatial data.
 
 ```{r buffers}
-buffer_distances <- c(500000, 750000, 1000000) #meters
-rasty_riv <- rast(rivers)
+buffer_distances <- c(500, 750, 1000) #meters
+rasty_riv <- rast(rivers_cropped)
+rasty_riv
 
-mean_buccale_500 <- extract(x = rasty_riv, 
-                            y = st_buffer(buccale_spatial, dist = (500 * 1000)), fun = mean)
+#mean_buccale_500 <- extract(x = rasty_riv, y = st_buffer(buccale_spatial, dist = 500), fun = mean)
 
 
 
