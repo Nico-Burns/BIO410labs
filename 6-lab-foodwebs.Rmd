@@ -1,0 +1,264 @@
+---
+title: "Lab 7: Networks"
+author: "Lauren Ponisio"
+output: pdf_document
+always_allow_html: true
+---
+
+<!-- Lesson Overview -->
+# Computational Topics
+- Build and visualize food webs 
+- Write functions to implement mathematical equations
+
+# Conservation topics
+-  Paleofood webs
+-  Species extinction
+
+In this lab we will practice our network visualization and manipulation skills using the paleo food web data from [Yeakel et al. 2014](https://doi.org/10.1073/pnas.1408471111). 
+
+![Paleoweb](figures/paleoweb.jpg)
+
+See the beautiful, animated version of the graphic above [here](https://infograficos.estadao.com.br/public/cidades/extincoes-egito/)
+
+```{r load-libraries, echo=FALSE, results="hide", message=FALSE, warning=FALSE}
+library(igraph)
+library(tidyverse)
+library(bipartite)
+library(networkD3)
+```
+
+With some interaction networks we can observe the interactions, for example plant-pollinator networks, seed-disperal networks, human social networks. In food webs sometimes feeding interactions are observed directly, through camera traps, people doing timed observations, and now molecular analysis of gut contents/scat. However, often with food webs people build probabilistic models of who interacts with who based on body size (as in the Yeakel et al. 2014), especially with paleowebs. Thus the data from Yeakel et al. is 1) an occurrence matrix  (Figure 2 from the publication) and a matrix of body sizes (two columns, females then males). We will use these data to build the foodwebs for each time period. This lab is pretty challenging because it will use many of our core programming skills (for loops, writing functions, subsetting data) and our network skills. 
+
+First we will read in the data. The matrix we are reading in has no row or column names, we will have to set them. 
+
+```{r load-data}
+sp_occ <- read.table(file="data/egypt_data.txt", header = FALSE)
+str(sp_occ)
+sp_mass <- read.table(file="data/egypt_mass.txt", header=FALSE)
+str(sp_mass)
+```
+![Figure 2](figures/figure2.jpg)
+
+The rows are arranged in the order of Figure 2 of the manuscript. To set the rownames we can make a vector of the names then use the function 'rownames'. We also have to note which species are predators (all those in the species in the Carnivora clade in figure 2). Otherwise we will create a web where giraffes are voracious predators consuming all of the other species (I made this mistake when constructing the networks originally). I have transcribed the data from figure 2 for you: 
+ 
+```{r labels}
+row_labs_sp <- c("Canis aureus", "Vulpes vulpes", "Lycaon pictus", "Hyaena hyaena", "Crocuta crocuta", "Panthera leo (long maned)", "Panthera leo (short maned)", "Panthera pardus", "Acinonyx jubatus", "Loxodonta africana", "Equus asinus", "Equus grevyi", "Equus quagga", "Diceros/Ceratotherium", "Sus scrofa",  "Phacochoerus aethiopicus", "Hippopotamus amphibius", "Giraffa camelopardalis", "Dama mesopotamica", "Camelus dromedarius", "Taurotragus oryx", "Tragelaphus spekei", "Addax nasomaculatus", "Oryx dammah", "Oryx beisa", "Hippotragus equinus", "Kobus kob", "Kobus megaceros", "Alcelaphus bucelaphus", "Connochaetes taurinus", "Litocranius walleri", "Ammodorcas clarkei", "Gazella dorcas", "Gazella leptoceros", "Gazella soemmerringii", "Capra ibex", "Ammotragus lervia", "Bos primigenius", "Syncerus caffer")
+
+## Set 1 for predators, 0 for prey  
+carnivores <- c(rep(1, 9), rep(0, length(row_labs_sp)- 9))
+names(carnivores) <- row_labs_sp
+```
+
+# Lab part 1: Creating our foodwebs based on body sizes.
+
+a. Use the above vector of species names to label the row names of the species occurrence and the body size matrices.  The columns of the species occurrence matrix are time points, so we can leave those as V1 etc., but we should set the column names of the mass matrix as "f", "m" (female and male). Use 'head' to check each matrix to see if the names are displayed properly. 
+
+```{r set-labels}
+colnames(sp_mass) <- c("F", "M")
+rownames(sp_mass) <- row_labs_sp
+rownames(sp_occ) <- row_labs_sp
+
+head(sp_mass)
+head(sp_occ)
+```
+Yeakel recommended an updated equation to estimate the probability a predator consumed a prey based on their relative body masses from [Rohr et al. 2010.](https://doi.org/10.1086/653667). The  probability of existence of a trophic link between a predator of body-size $m_i$ and a prey of body-size $m_j$ is given by:
+
+![Probabilitic feeding equation](figures/feeding_equ.png)
+(P($A_{1j}$ = 1) is the probability predator i eats prey j). 
+
+a. Write a function and call it 'probEat' to implement the equation above. Round the probability to two decimal places.
+
+Below are the values of alpha, beta, and gamma for the Serengeti.  In addition, you will need a function to compute the inverse logit function because this equation is for the logit of the probability, so to calculate the 0-1 probability you will need to take the inverse logit of the other side of the equation. Also note, $log^2$ is equivalent to (log($m_i$/$m_j$))^2
+
+```{r inv-logit}
+alpha <- 2.51
+beta <- 0.79
+gamma <- -0.37
+  
+inv_logit <- function(x) {exp(x)/(1+exp(x))}
+
+
+```
+
+```{r function-mass-comp}
+probEat <- function(mi, mj) {
+  p <- (alpha + (beta * log(mj/mi)) + (gamma * (log(mj/mi))^2))
+  p_1 <- inv_logit(p)
+  return(round(p_1, digits = 2))
+}
+```
+
+c. Now create networks of who eats whom. We will start with adjacency matrices. We will assume all of our species are the size of females. For this step, don't worry about predators vs. prey yet, just calculate all of the feeding probabilities based on body sizes.  
+
+Hint: if you start with a square matrix of all zeros (one row and one column for each species), you can use a for loop to fill in that matrix with probabilities calculated from your function above.
+
+```{r create-adj-mat}
+num_species <- length(row_labs_sp)
+adj_mat <- matrix(0, nrow = num_species, ncol = num_species)
+#adj_mat
+rownames(adj_mat) <- row_labs_sp
+colnames(adj_mat) <- row_labs_sp
+
+for (i in 1:num_species) {
+  for (j in 1:num_species) {
+    adj_mat[i, j] <- probEat(sp_mass$F[j], sp_mass$F[i])
+  }
+}
+head(adj_mat)
+
+```
+
+d. Now that you have your matrix of potential feeding interactions based on body size, use the 'carnivores' vector created above to set all of the feeding interactions of herbivores (0s in that vector) to zero. In foodwebs the columns are the higher trophic level and the rows are the lower.
+HINT: the function 'sweep' may be useful, though there are many approaches to do the needed matrix multiplication. Print the row and column sums. 
+
+```{r create-adj-mat-2}
+#herbivores <- c("Loxodonta africana", "Equus asinus", "Equus grevyi", "Equus quagga", "Diceros/Ceratotherium", "Sus scrofa",  "Phacochoerus aethiopicus", "Hippopotamus amphibius", "Giraffa camelopardalis", "Dama mesopotamica", "Camelus dromedarius", "Taurotragus oryx", "Tragelaphus spekei", "Addax nasomaculatus", "Oryx dammah", "Oryx beisa", "Hippotragus equinus", "Kobus kob", "Kobus megaceros", "Alcelaphus bucelaphus", "Connochaetes taurinus", "Litocranius walleri", "Ammodorcas clarkei", "Gazella dorcas", "Gazella leptoceros", "Gazella soemmerringii", "Capra ibex", "Ammotragus lervia", "Bos primigenius", "Syncerus caffer")
+
+adj_mat1 <- sweep(adj_mat, 2, carnivores, `*`)
+print(adj_mat1)
+row_sums <- rowSums(adj_mat1)
+col_sums <- colSums(adj_mat1)
+
+print(row_sums)
+
+print(col_sums)
+```
+
+# Lab part 2: Breaking the networks into time periods
+
+a. With our matrix of feeding interaction we can create a web for each time period, including only the species that were not extinct in the period. Try first just using the second time period (the second column of 'sp_occ'). 
+
+Use the function 'empty' from the bipartite package to empty the matrix of rows and columns with no interactions. The number of species in the second time period is 36 'sum(sp_occ[,2])'. Check to see that the number of rows in your network with probabilities > 0 is 36. 
+
+HINT: You will need to zero out the rows where a species in not present in that time period and the columns. The function 'sweep' may be useful again.
+
+```{r t1-time-webs}
+#sp_occ
+#sp_mass
+period_two <- sp_occ$V2
+#period_two
+adj_mat_time2 <- adj_mat
+
+adj_mat_time2[period_two == 0, ] <- 0
+adj_mat_time2[,period_two == 0] <- 0
+interactions <- sum(period_two == 1)
+cat("Number of species in the second time period with interactions: ", interactions, "\n")
+adj_mat_time2_empty <- empty(adj_mat_time2)
+cat("Number of rows and columns in the modified adjacency matrix: ", dim(adj_mat_time2_empty), "\n")
+
+
+#adj_mat1
+```
+
+b. Now create a network for all of the time points by creating a list where each element is a network. You will need to use a for loop, or an 'lapply' if you feel like experimenting with apply functions. Print the first 5 columns and rows of the 5th time period. 
+
+HINT: If choosing the for loop route, remember to create an empty list of a specific length use the function 'vector'. To access a specific element of a list, use [[]], for example cool_list[[1]] accesses the first element of the list.
+
+```{r all-time-webs}
+big_network <- vector(mode = "list",length = 23)
+#big_network
+for (i in 1:23) {
+  adj_mat_timei <- adj_mat
+  
+  period_i <- sp_occ[i, ]
+  
+  adj_mat_timei[period_i == 0, ] <- 0
+  adj_mat_timei[, period_i == 0] <- 0
+  
+  big_network[[i]] <- adj_mat_timei
+}
+
+
+#print(big_network[[5]][1:5, 1:5])
+```
+
+# Lab part 3: Visualize the networks
+a. Convert the adjacency matrices to igraph class objects using the function 'graph_from_adjacency_matrix'. You can use a for loop or an lapply. Because these are food webs, set the argument mode to "directed" and the argument diag to FALSE (this means a species cannot consumer members of its own species, i.e., no canabalism/self-loops). Also remember that these interactions are weighted.  
+
+```{r graphs}
+
+big_network_adj <- lapply(big_network, function(mat) {
+  graph_from_adjacency_matrix(mat, mode = "directed", weighted = TRUE, diag = FALSE)
+})
+
+#print(big_network_adj[[1]])
+
+```
+
+b. Plot three networks of your choice, using different colors for the predators and prey.
+
+```{r plot-g1}
+## assign groups as carnivore or herbivore
+
+## find modules
+mod <- cluster_walktrap(big_network_adj[[1]])
+## assign vertices to modules
+groups <- membership(mod)
+
+## convert to a network 3d object
+big_net3d <- igraph_to_networkD3(big_network_adj[[1]], group=groups, 
+                                       what = "both")
+
+current_mat <- as.matrix(big_network_adj[[1]])
+node_status <- apply(current_mat, 1, function(row) all(row == 0))
+
+big_net3d$nodes$color <- ifelse(node_status, "red", "blue")
+## plot the network
+forceNetwork(Links = big_net3d$links,
+             Nodes = big_net3d$nodes,
+            Source = "source", Target = "target",
+            Value = "value",  NodeID = "name",
+             Group = "group",
+            colourScale = JS("d3.scaleOrdinal().domain(['blue', 'red']).range(['blue', 'red']);"),
+            opacity = 0.8, zoom=TRUE, opacityNoHover = 0.9)
+
+```
+
+```{r plot-g2}
+## find modules
+mod_1 <- cluster_walktrap(big_network_adj[[3]])
+## assign vertices to modules
+groups_1 <- membership(mod_1)
+
+## convert to a network 3d object
+big_net3d_1 <- igraph_to_networkD3(big_network_adj[[3]], group=groups_1, 
+                                       what = "both")
+
+current_mat_1 <- as.matrix(big_network_adj[[3]])
+node_status_1 <- apply(current_mat_1, 1, function(row) all(row == 0))
+
+big_net3d_1$nodes$color <- ifelse(node_status_1, "yellow", "green")
+## plot the network
+forceNetwork(Links = big_net3d_1$links,
+             Nodes = big_net3d_1$nodes,
+            Source = "source", Target = "target",
+            Value = "value",  NodeID = "name",
+             Group = "group",
+            colourScale = JS("d3.scaleOrdinal().domain(['green', 'yellow']).range(['green', 'yellow']);"),
+            opacity = 0.8, zoom=TRUE, opacityNoHover = 0.9)
+```
+
+```{r plot-g3}
+## find modules
+mod_2 <- cluster_walktrap(big_network_adj[[4]])
+## assign vertices to modules
+groups_2 <- membership(mod_2)
+
+## convert to a network 3d object
+big_net3d_2 <- igraph_to_networkD3(big_network_adj[[4]], group=groups_2, 
+                                       what = "both")
+
+current_mat_2 <- as.matrix(big_network_adj[[4]])
+node_status_2 <- apply(current_mat_2, 1, function(row) all(row == 0))
+
+big_net3d_2$nodes$color <- ifelse(node_status_2, "purple", "orange")
+## plot the network
+forceNetwork(Links = big_net3d_2$links,
+             Nodes = big_net3d_2$nodes,
+            Source = "source", Target = "target",
+            Value = "value",  NodeID = "name",
+             Group = "group",
+            colourScale = JS("d3.scaleOrdinal().domain(['orange', 'purple']).range(['orange', 'purple']);"),
+            opacity = 0.8, zoom=TRUE, opacityNoHover = 0.9)
+```
+
